@@ -1,8 +1,8 @@
 /**
- * Cloudflare Worker: GPX Analyzer Pro v8.0
- * - Feature: Interactive Chart (Hover on chart updates marker on map).
- * - UI: Added a visual marker (Gold point) on the map for location tracking.
- * - Core: Based on v7.2 (Stable, Disclaimer included).
+ * Cloudflare Worker: GPX Analyzer Pro v9.0
+ * - Feature: Added Satellite Map Mode (Esri World Imagery).
+ * - UI: Added Map Style Toggle Button (Standard / Satellite).
+ * - Core: Based on v8.0 (Interactive Chart, Stable Rendering).
  */
 
 const BANNER_POOL = [
@@ -89,9 +89,22 @@ export default {
           .diff-mid { background: #fef9c3; color: #854d0e; }
           .diff-hard { background: #fee2e2; color: #991b1b; }
 
-          /* Map */
+          /* Map Container */
           #map { height: 500px; width: 100%; border-radius: 16px; margin-bottom: 20px; display: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 4px solid white; background-color: #e2e8f0; position: relative; }
           
+          /* [추가] 지도 스타일 전환 버튼 */
+          .map-style-control {
+            position: absolute; top: 15px; left: 15px; z-index: 10;
+            background: white; padding: 4px; border-radius: 8px;
+            display: flex; gap: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            display: none; /* 초기엔 숨김 */
+          }
+          .style-btn {
+            padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: bold; color: #64748b; transition: all 0.2s;
+          }
+          .style-btn:hover { background: #f1f5f9; }
+          .style-btn.active { background: #059669; color: white; }
+
           .chart-container { background: white; padding: 20px; border-radius: 16px; height: 300px; display: none; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
 
           .map-legend { position: absolute; bottom: 30px; left: 15px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 8px; font-size: 0.8rem; display: none; z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
@@ -178,6 +191,11 @@ export default {
 
           <div style="position:relative;">
              <div id="map"></div>
+             <div id="mapStyleBox" class="map-style-control">
+                <div class="style-btn active" id="btnStandard" onclick="setMapStyle('standard')">일반</div>
+                <div class="style-btn" id="btnSatellite" onclick="setMapStyle('satellite')">위성</div>
+             </div>
+             
              <div id="mapMsg" class="map-overlay" style="top:15px; right:15px;">🖱️ 차트 위에 마우스를 올려보세요!</div>
              <div id="mapLegend" class="map-legend">
                 <div class="legend-item"><div class="color-box" style="background:#ef4444;"></div>오르막 (Uphill)</div>
@@ -354,6 +372,7 @@ export default {
             mapEl.style.display = 'block'; 
             void mapEl.offsetWidth; 
 
+            document.getElementById('mapStyleBox').style.display = 'flex'; // 버튼 보이기
             document.getElementById('mapLegend').style.display = 'block';
             document.getElementById('mapMsg').style.display = 'block';
             document.getElementById('chartBox').style.display = 'block';
@@ -458,9 +477,19 @@ export default {
                             tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
                             tileSize: 256,
                             attribution: '&copy; OpenStreetMap'
+                        },
+                        'satellite': {
+                            type: 'raster',
+                            tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+                            tileSize: 256,
+                            attribution: '&copy; Esri'
                         }
                     },
-                    layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+                    layers: [
+                        // [핵심] 두 개의 레이어를 미리 다 깔아둠 (하나는 숨김 처리)
+                        { id: 'osm-layer', type: 'raster', source: 'osm', layout: { visibility: 'visible' } },
+                        { id: 'satellite-layer', type: 'raster', source: 'satellite', layout: { visibility: 'none' } }
+                    ]
                 },
                 center: center,
                 zoom: 13,
@@ -500,7 +529,6 @@ export default {
                 }
               });
 
-              // [추가] 마커용 소스와 레이어 (초기엔 비어있음)
               map.addSource('hover-marker', {
                   type: 'geojson',
                   data: { type: 'FeatureCollection', features: [] }
@@ -511,7 +539,7 @@ export default {
                   source: 'hover-marker',
                   paint: {
                       'circle-radius': 8,
-                      'circle-color': '#FFD700', // Gold Color
+                      'circle-color': '#FFD700',
                       'circle-stroke-width': 2,
                       'circle-stroke-color': '#FFFFFF'
                   }
@@ -524,10 +552,25 @@ export default {
             map.addControl(new maplibregl.NavigationControl());
           }
 
+          // [추가] 지도 스타일 전환 함수
+          function setMapStyle(style) {
+              if(!map) return;
+              
+              if(style === 'standard') {
+                  map.setLayoutProperty('osm-layer', 'visibility', 'visible');
+                  map.setLayoutProperty('satellite-layer', 'visibility', 'none');
+                  document.getElementById('btnStandard').classList.add('active');
+                  document.getElementById('btnSatellite').classList.remove('active');
+              } else {
+                  map.setLayoutProperty('osm-layer', 'visibility', 'none');
+                  map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
+                  document.getElementById('btnStandard').classList.remove('active');
+                  document.getElementById('btnSatellite').classList.add('active');
+              }
+          }
+
           function drawChart(points, canvasId, isSimple = false, maxEle, minEle) {
             const ctx = document.getElementById(canvasId).getContext('2d');
-            
-            // 차트 최적화 (Downsampling)
             const step = Math.ceil(points.length / 400);
             const chartData = points.filter((_, i) => i % step === 0);
             const labels = chartData.map(p => p.cumDist.toFixed(1));
@@ -561,18 +604,14 @@ export default {
                     legend: { display: false }, 
                     tooltip: { enabled: !isSimple, intersect: false, mode: 'index' } 
                 },
-                // [추가] 차트 Hover 이벤트 핸들러
                 onHover: (e, activeElements) => {
-                    // 심플 차트(공유용)가 아닐 때만 작동
                     if (!isSimple && map && map.getSource('hover-marker')) {
                         if (activeElements && activeElements.length > 0) {
                             const index = activeElements[0].index;
-                            // 차트 인덱스를 원본 포인트 인덱스로 변환
                             const originalIndex = index * step;
                             const pt = points[originalIndex];
                             
                             if (pt) {
-                                // 마커 위치 업데이트
                                 map.getSource('hover-marker').setData({
                                     type: 'Feature',
                                     geometry: {
@@ -582,7 +621,6 @@ export default {
                                 });
                             }
                         } else {
-                            // 마우스가 차트 밖으로 나가면 마커 숨기기
                             map.getSource('hover-marker').setData({
                                 type: 'FeatureCollection', features: []
                             });
