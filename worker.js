@@ -1,7 +1,8 @@
 /**
- * Cloudflare Worker: GPX Analyzer Pro v11.2
- * - Fix: Added 'Distance' label to Heart Rate & Cadence chart tooltips (UI Consistency).
- * - Core: Includes all previous fixes (Cadence Smoothing, Fill-Forward, Satellite Map).
+ * Cloudflare Worker: GPX Analyzer Pro v14.0
+ * - Layout: Moved Action Buttons to top (below banner).
+ * - Fix: Fixed "Play Button Jitter" by changing CSS centering method.
+ * - Logic: Removed auto-zoom on Flyover (Maintains course overview).
  */
 
 const BANNER_POOL = [
@@ -86,6 +87,27 @@ export default {
           .style-btn:hover { background: #f1f5f9; }
           .style-btn.active { background: #059669; color: white; }
 
+          /* [수정] 지도 내부 플레이 버튼 컨테이너 (Flexbox로 중앙 정렬하여 흔들림 방지) */
+          .map-play-control {
+            position: absolute; bottom: 30px; 
+            width: 100%; display: flex; justify-content: center; pointer-events: none;
+            z-index: 20; display: none;
+          }
+          .play-btn {
+            pointer-events: auto;
+            background: rgba(16, 185, 129, 0.9); color: white; border: none;
+            padding: 10px 24px; border-radius: 30px; font-size: 1rem; font-weight: bold;
+            cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            transition: transform 0.2s, background 0.2s; /* 부드러운 전환 */
+            display: flex; align-items: center; gap: 8px;
+            backdrop-filter: blur(4px);
+          }
+          .play-btn:hover { background: #059669; transform: scale(1.05); /* 위치 이동 없이 크기만 확대 */ }
+          .play-btn:active { transform: scale(0.95); }
+          .play-btn.recording { background: #ef4444; animation: pulse 1.5s infinite; }
+
+          @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
+
           .chart-container { background: white; padding: 20px; border-radius: 16px; height: 300px; display: none; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
           .chart-container.metrics { height: 250px; margin-top: -10px; display: none; }
 
@@ -101,11 +123,13 @@ export default {
           .share-lbl { font-size: 0.65rem; color: #64748b; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 2px; }
           .share-footer { font-size: 0.75rem; color: #cbd5e1; margin-top: 15px; border-top: 1px solid #e2e8f0; padding-top: 10px; font-weight: 600; display:flex; justify-content: space-between; }
 
-          .btn-group { display: flex; gap: 10px; justify-content: center; display: none; flex-wrap: wrap; }
+          /* [수정] 상단 버튼 그룹 스타일 (마진 조정) */
+          .btn-group { display: flex; gap: 10px; justify-content: center; display: none; flex-wrap: wrap; margin-bottom: 20px; }
           .action-btn { background: #3b82f6; color: white; padding: 12px 24px; border-radius: 30px; font-weight: bold; cursor: pointer; border: none; font-size: 0.95rem; transition: transform 0.1s; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2); }
           .action-btn:active { transform: scale(0.98); }
           .action-btn.share { background: #8b5cf6; box-shadow: 0 4px 6px rgba(139, 92, 246, 0.2); }
           .action-btn.reset { background: #64748b; box-shadow: none; }
+          .action-btn.record { background: #ef4444; box-shadow: 0 4px 6px rgba(239, 68, 68, 0.2); }
 
           .ad-banner { display: block; background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white; text-decoration: none; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; transition: transform 0.2s; }
           .ad-banner:hover { transform: translateY(-2px); }
@@ -126,6 +150,12 @@ export default {
             ${randomBanner.text}<br>
             <span style="font-size:0.85rem; opacity:0.8;">${randomBanner.sub}</span>
           </a>
+
+          <div class="btn-group" id="btnGroup">
+            <button class="action-btn share" onclick="downloadImage()">📸 이미지 저장</button>
+            <button class="action-btn record" id="btnRecord" onclick="startRecording()">🎥 영상 저장</button>
+            <button class="action-btn reset" onclick="location.reload()">🔄 다른 파일 분석</button>
+          </div>
 
           <label class="upload-label" id="uploadBox">
             <div class="upload-icon">📂</div>
@@ -177,10 +207,18 @@ export default {
 
           <div style="position:relative;">
              <div id="map"></div>
+             
              <div id="mapStyleBox" class="map-style-control">
                 <div class="style-btn active" id="btnStandard" onclick="setMapStyle('standard')">일반</div>
                 <div class="style-btn" id="btnSatellite" onclick="setMapStyle('satellite')">위성</div>
              </div>
+
+             <div id="mapPlayControl" class="map-play-control">
+                 <button class="play-btn" id="btnMapPlay" onclick="toggleFlyover()">
+                    <span>▶</span> 코스 주행
+                 </button>
+             </div>
+             
              <div id="mapMsg" class="map-overlay" style="top:15px; right:15px;">🖱️ 차트 위에 마우스를 올려보세요!</div>
              <div id="mapLegend" class="map-legend">
                 <div class="legend-item"><div class="color-box" style="background:#ef4444;"></div>오르막 (Uphill)</div>
@@ -194,11 +232,6 @@ export default {
           </div>
           <div class="chart-container metrics" id="metricsBox">
             <canvas id="metricsChart"></canvas>
-          </div>
-
-          <div class="btn-group" id="btnGroup">
-            <button class="action-btn share" onclick="downloadImage()">📸 이미지 저장</button>
-            <button class="action-btn reset" onclick="location.reload()">🔄 다른 파일 분석</button>
           </div>
 
           <footer class="footer-disclaimer">
@@ -251,6 +284,12 @@ export default {
           let chart = null;
           let metricsChart = null;
           let isAnalyzing = false;
+          let gpxData = [];
+          
+          let animationID = null;
+          let isFlying = false;
+          let mediaRecorder = null;
+          let recordedChunks = [];
 
           window.addEventListener("dragover", e => e.preventDefault());
           window.addEventListener("drop", e => e.preventDefault());
@@ -294,7 +333,6 @@ export default {
                 return; 
             }
 
-            // Fill-Forward 보정용 변수
             let lastCad = 0; 
             let lastHR = 0;
 
@@ -316,7 +354,6 @@ export default {
                   if (cadNode) cad = parseInt(cadNode.textContent);
               }
 
-              // 보정: 값이 없으면 이전 값 사용
               if (cad > 0) lastCad = cad; else cad = lastCad;
               if (hr > 0) lastHR = hr; else hr = lastHR;
 
@@ -356,8 +393,8 @@ export default {
               }
             }
 
-            // 케이던스 스무딩 (이동 평균)
             smoothCadence(points);
+            gpxData = points;
 
             const distKm = totalDist.toFixed(2);
             const gainM = Math.round(gain);
@@ -388,6 +425,7 @@ export default {
             void mapEl.offsetWidth; 
 
             document.getElementById('mapStyleBox').style.display = 'flex';
+            document.getElementById('mapPlayControl').style.display = 'flex'; // [수정] Flex로 표시
             document.getElementById('mapLegend').style.display = 'block';
             document.getElementById('mapMsg').style.display = 'block';
             document.getElementById('chartBox').style.display = 'block';
@@ -726,7 +764,6 @@ export default {
                         tooltip: { 
                             mode: 'index', 
                             intersect: false,
-                            // [수정] 툴팁 타이틀(거리) 추가
                             callbacks: {
                                 title: (items) => \`거리: \${items[0].label} km\`
                             }
@@ -777,6 +814,120 @@ export default {
               link.href = canvas.toDataURL();
               link.click();
             });
+          }
+
+          function toggleFlyover() {
+              if (isFlying) {
+                  stopFlyover();
+              } else {
+                  startFlyover();
+              }
+          }
+
+          function startFlyover(isRecording = false) {
+            if(!map || gpxData.length === 0) return;
+            isFlying = true;
+            
+            const btn = document.getElementById('btnMapPlay');
+            btn.innerHTML = "<span>⏹</span> 중지";
+            btn.classList.add("recording");
+            
+            let i = 0;
+            const speedFactor = 2; 
+
+            // [수정] 줌인 제거, 현재 뷰 유지 (Center만 이동)
+            map.flyTo({
+                center: [gpxData[0].lon, gpxData[0].lat],
+                speed: 1.5 // Initial smooth move
+                // zoom, pitch 제거됨
+            });
+
+            setTimeout(() => {
+                function frame() {
+                    if (!isFlying || i >= gpxData.length - 1) {
+                        stopFlyover();
+                        if(isRecording) stopRecording();
+                        return;
+                    }
+
+                    const curr = gpxData[i];
+                    
+                    // [수정] 줌인 제거 (JumpTo)
+                    map.jumpTo({
+                        center: [curr.lon, curr.lat]
+                        // zoom, pitch, bearing 제거됨
+                    });
+
+                    if(map.getSource('hover-marker')) {
+                        map.getSource('hover-marker').setData({
+                            type: 'Feature', 
+                            geometry: { type: 'Point', coordinates: [curr.lon, curr.lat] }
+                        });
+                    }
+
+                    i += speedFactor;
+                    animationID = requestAnimationFrame(frame);
+                }
+                
+                if(isRecording && mediaRecorder && mediaRecorder.state === "inactive") {
+                    mediaRecorder.start();
+                }
+                
+                frame();
+            }, 1000);
+          }
+
+          function stopFlyover() {
+              isFlying = false;
+              if (animationID) cancelAnimationFrame(animationID);
+              
+              const btn = document.getElementById('btnMapPlay');
+              btn.innerHTML = "<span>▶</span> 코스 주행";
+              btn.classList.remove("recording");
+              
+              if(map && gpxData.length > 0) {
+                  const bounds = new maplibregl.LngLatBounds();
+                  gpxData.forEach(p => bounds.extend([p.lon, p.lat]));
+                  map.fitBounds(bounds, { padding: 60, pitch: 50 });
+              }
+          }
+
+          function startRecording() {
+             if(!map) return;
+             const canvas = map.getCanvas();
+             const stream = canvas.captureStream(30); 
+             
+             recordedChunks = [];
+             mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+
+             mediaRecorder.ondataavailable = function(e) {
+                if (e.data.size > 0) {
+                    recordedChunks.push(e.data);
+                }
+             };
+
+             mediaRecorder.onstop = function() {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'gios-gpx-flyover.webm';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                }, 100);
+             };
+
+             startFlyover(true);
+          }
+          
+          function stopRecording() {
+              if(mediaRecorder && mediaRecorder.state === "recording") {
+                  mediaRecorder.stop();
+              }
           }
         </script>
       </body>
