@@ -1,8 +1,7 @@
 /**
- * Cloudflare Worker: GPX Analyzer Pro v9.0
- * - Feature: Added Satellite Map Mode (Esri World Imagery).
- * - UI: Added Map Style Toggle Button (Standard / Satellite).
- * - Core: Based on v8.0 (Interactive Chart, Stable Rendering).
+ * Cloudflare Worker: GPX Analyzer Pro v11.2
+ * - Fix: Added 'Distance' label to Heart Rate & Cadence chart tooltips (UI Consistency).
+ * - Core: Includes all previous fixes (Cadence Smoothing, Fill-Forward, Satellite Map).
  */
 
 const BANNER_POOL = [
@@ -61,19 +60,9 @@ export default {
 
           /* Upload Box */
           .upload-label { 
-            display: block; 
-            background: white; 
-            padding: 40px; 
-            border-radius: 16px; 
-            border: 2px dashed #34d399; 
-            text-align: center; 
-            cursor: pointer; 
-            transition: all 0.2s; 
-            margin-bottom: 20px; 
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); 
+            display: block; background: white; padding: 40px; border-radius: 16px; border: 2px dashed #34d399; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); 
           }
           .upload-label:hover { background: #ecfdf5; border-color: var(--primary); transform: translateY(-2px); }
-          
           .upload-icon { font-size: 3.5rem; margin-bottom: 15px; }
           .upload-text { display: inline-block; background: var(--primary); color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 1rem; }
           .upload-sub { color: #64748b; font-size: 0.9rem; margin-top: 15px; }
@@ -89,34 +78,22 @@ export default {
           .diff-mid { background: #fef9c3; color: #854d0e; }
           .diff-hard { background: #fee2e2; color: #991b1b; }
 
-          /* Map Container */
+          /* Map */
           #map { height: 500px; width: 100%; border-radius: 16px; margin-bottom: 20px; display: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 4px solid white; background-color: #e2e8f0; position: relative; }
           
-          /* [추가] 지도 스타일 전환 버튼 */
-          .map-style-control {
-            position: absolute; top: 15px; left: 15px; z-index: 10;
-            background: white; padding: 4px; border-radius: 8px;
-            display: flex; gap: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-            display: none; /* 초기엔 숨김 */
-          }
-          .style-btn {
-            padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: bold; color: #64748b; transition: all 0.2s;
-          }
+          .map-style-control { position: absolute; top: 15px; left: 15px; z-index: 10; background: white; padding: 4px; border-radius: 8px; display: flex; gap: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); display: none; }
+          .style-btn { padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: bold; color: #64748b; transition: all 0.2s; }
           .style-btn:hover { background: #f1f5f9; }
           .style-btn.active { background: #059669; color: white; }
 
           .chart-container { background: white; padding: 20px; border-radius: 16px; height: 300px; display: none; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+          .chart-container.metrics { height: 250px; margin-top: -10px; display: none; }
 
           .map-legend { position: absolute; bottom: 30px; left: 15px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 8px; font-size: 0.8rem; display: none; z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
           .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
           .color-box { width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; }
 
-          #shareCard { 
-            background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%); 
-            padding: 30px; border-radius: 20px; width: 450px; 
-            position: absolute; top: -9999px; left: -9999px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1); font-family: sans-serif; text-align: center;
-          }
+          #shareCard { background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%); padding: 30px; border-radius: 20px; width: 450px; position: absolute; top: -9999px; left: -9999px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); font-family: sans-serif; text-align: center; }
           .share-title { font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; color: #064e3b; letter-spacing: -0.5px; }
           .share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
           .share-item { background: white; padding: 12px; border-radius: 10px; border: 1px solid #e2e8f0; text-align: center; }
@@ -134,7 +111,6 @@ export default {
           .ad-banner:hover { transform: translateY(-2px); }
 
           .map-overlay { font-size: 0.8rem; background: rgba(255,255,255,0.9); padding: 6px 12px; border-radius: 20px; position: absolute; z-index: 10; display:none; font-weight:600; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color:#333; }
-
           .footer-disclaimer { margin-top: 40px; margin-bottom: 20px; text-align: center; font-size: 0.8rem; color: #94a3b8; }
         </style>
       </head>
@@ -171,6 +147,16 @@ export default {
               <span class="stat-label">평균 페이스</span>
               <span class="stat-value" id="valPace">-</span><span class="stat-unit">/km</span>
             </div>
+            
+            <div class="stat-card" id="cardHR" style="display:none;">
+              <span class="stat-label">평균 심박수</span>
+              <span class="stat-value" id="valHR">-</span><span class="stat-unit">bpm</span>
+            </div>
+            <div class="stat-card" id="cardCad" style="display:none;">
+              <span class="stat-label">평균 케이던스</span>
+              <span class="stat-value" id="valCad">-</span><span class="stat-unit">spm</span>
+            </div>
+
             <div class="stat-card">
               <span class="stat-label">최고 페이스</span>
               <span class="stat-value" id="valBestPace">-</span><span class="stat-unit">/km</span>
@@ -195,7 +181,6 @@ export default {
                 <div class="style-btn active" id="btnStandard" onclick="setMapStyle('standard')">일반</div>
                 <div class="style-btn" id="btnSatellite" onclick="setMapStyle('satellite')">위성</div>
              </div>
-             
              <div id="mapMsg" class="map-overlay" style="top:15px; right:15px;">🖱️ 차트 위에 마우스를 올려보세요!</div>
              <div id="mapLegend" class="map-legend">
                 <div class="legend-item"><div class="color-box" style="background:#ef4444;"></div>오르막 (Uphill)</div>
@@ -206,6 +191,9 @@ export default {
           
           <div class="chart-container" id="chartBox">
             <canvas id="elevationChart"></canvas>
+          </div>
+          <div class="chart-container metrics" id="metricsBox">
+            <canvas id="metricsChart"></canvas>
           </div>
 
           <div class="btn-group" id="btnGroup">
@@ -261,6 +249,7 @@ export default {
         <script>
           let map = null;
           let chart = null;
+          let metricsChart = null;
           let isAnalyzing = false;
 
           window.addEventListener("dragover", e => e.preventDefault());
@@ -295,12 +284,19 @@ export default {
             let minEle = 9999;
             let startTime = null, endTime = null;
             let movingTimeSec = 0;
+            
+            let totalHR = 0, countHR = 0, maxHR = 0;
+            let totalCad = 0, countCad = 0;
 
             if (trkpts.length === 0) { 
                 alert('유효한 경로 데이터가 없습니다.'); 
                 isAnalyzing = false;
                 return; 
             }
+
+            // Fill-Forward 보정용 변수
+            let lastCad = 0; 
+            let lastHR = 0;
 
             for (let i = 0; i < trkpts.length; i++) {
               const lat = parseFloat(trkpts[i].getAttribute("lat"));
@@ -310,17 +306,33 @@ export default {
               const timeStr = trkpts[i].getElementsByTagName("time")[0]?.textContent;
               const time = timeStr ? new Date(timeStr).getTime() : null;
 
+              let hr = 0, cad = 0;
+              const ext = trkpts[i].getElementsByTagName("extensions")[0];
+              if (ext) {
+                  const hrNode = ext.getElementsByTagName("hr")[0] || ext.getElementsByTagName("gpxtpx:hr")[0];
+                  if (hrNode) hr = parseInt(hrNode.textContent);
+                  
+                  const cadNode = ext.getElementsByTagName("cad")[0] || ext.getElementsByTagName("gpxtpx:cad")[0];
+                  if (cadNode) cad = parseInt(cadNode.textContent);
+              }
+
+              // 보정: 값이 없으면 이전 값 사용
+              if (cad > 0) lastCad = cad; else cad = lastCad;
+              if (hr > 0) lastHR = hr; else hr = lastHR;
+
               if (i === 0) startTime = time;
               endTime = time;
               if (ele > maxEle) maxEle = ele;
               if (ele < minEle) minEle = ele;
+              
+              if (hr > 0) { totalHR += hr; countHR++; if(hr > maxHR) maxHR = hr; }
+              if (cad > 0) { totalCad += cad; countCad++; }
 
               let dist = 0;
               let speedKmh = 0;
 
               if (i > 0 && points.length > 0) {
                 const prev = points[points.length - 1]; 
-                
                 const from = turf.point([prev.lon, prev.lat]);
                 const to = turf.point([lon, lat]);
                 dist = turf.distance(from, to, {units: 'kilometers'}); 
@@ -337,12 +349,15 @@ export default {
                          if (speedKmh > 1.0 && timeDiffSec < 300) movingTimeSec += timeDiffSec;
                       }
                     }
-                    points.push({ lat, lon, ele, time, cumDist: totalDist, speed: speedKmh });
+                    points.push({ lat, lon, ele, time, cumDist: totalDist, speed: speedKmh, hr, cad });
                 }
               } else {
-                  points.push({ lat, lon, ele, time, cumDist: 0, speed: 0 });
+                  points.push({ lat, lon, ele, time, cumDist: 0, speed: 0, hr, cad });
               }
             }
+
+            // 케이던스 스무딩 (이동 평균)
+            smoothCadence(points);
 
             const distKm = totalDist.toFixed(2);
             const gainM = Math.round(gain);
@@ -372,7 +387,7 @@ export default {
             mapEl.style.display = 'block'; 
             void mapEl.offsetWidth; 
 
-            document.getElementById('mapStyleBox').style.display = 'flex'; // 버튼 보이기
+            document.getElementById('mapStyleBox').style.display = 'flex';
             document.getElementById('mapLegend').style.display = 'block';
             document.getElementById('mapMsg').style.display = 'block';
             document.getElementById('chartBox').style.display = 'block';
@@ -385,6 +400,15 @@ export default {
             document.getElementById('valTime').innerText = timeStr;
             document.getElementById('valPace').innerText = avgPaceStr;
             document.getElementById('valBestPace').innerText = bestPaceStr;
+
+            if (countHR > 10) {
+                const el = document.getElementById('cardHR');
+                if(el) { el.style.display = 'block'; document.getElementById('valHR').innerText = Math.round(totalHR / countHR); }
+            }
+            if (countCad > 10) {
+                const el = document.getElementById('cardCad');
+                if(el) { el.style.display = 'block'; document.getElementById('valCad').innerText = Math.round(totalCad / countCad); }
+            }
 
             let diffClass = ''; let diffText = '';
             const ratio = gainM / totalDist;
@@ -410,7 +434,27 @@ export default {
             }, 100);
 
             drawChart(points, 'elevationChart', false, maxEle, minEle);
+            if (countHR > 10 || countCad > 10) {
+                document.getElementById('metricsBox').style.display = 'block';
+                drawMetricsChart(points, 'metricsChart', countHR > 10, countCad > 10);
+            }
             drawChart(points, 'shareChart', true, maxEle, minEle);
+        }
+
+          function smoothCadence(points) {
+              for (let i = 0; i < points.length; i++) {
+                  if (points[i].cad > 0) { 
+                      let sum = 0;
+                      let count = 0;
+                      for (let j = i - 2; j <= i + 2; j++) {
+                          if (j >= 0 && j < points.length && points[j].cad > 0) {
+                              sum += points[j].cad;
+                              count++;
+                          }
+                      }
+                      if(count > 0) points[i].cad = Math.round(sum / count);
+                  }
+              }
           }
 
           function formatPace(secondsPerKm) {
@@ -418,6 +462,21 @@ export default {
             const pMin = Math.floor(secondsPerKm / 60);
             const pSec = Math.floor(secondsPerKm % 60);
             return \`\${pMin}'\${pSec.toString().padStart(2, '0')}"\`;
+          }
+
+          function setMapStyle(style) {
+              if(!map) return;
+              if(style === 'standard') {
+                  map.setLayoutProperty('osm-layer', 'visibility', 'visible');
+                  map.setLayoutProperty('satellite-layer', 'visibility', 'none');
+                  document.getElementById('btnStandard').classList.add('active');
+                  document.getElementById('btnSatellite').classList.remove('active');
+              } else {
+                  map.setLayoutProperty('osm-layer', 'visibility', 'none');
+                  map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
+                  document.getElementById('btnStandard').classList.remove('active');
+                  document.getElementById('btnSatellite').classList.add('active');
+              }
           }
 
           function createAndRenderMap(points) {
@@ -486,7 +545,6 @@ export default {
                         }
                     },
                     layers: [
-                        // [핵심] 두 개의 레이어를 미리 다 깔아둠 (하나는 숨김 처리)
                         { id: 'osm-layer', type: 'raster', source: 'osm', layout: { visibility: 'visible' } },
                         { id: 'satellite-layer', type: 'raster', source: 'satellite', layout: { visibility: 'none' } }
                     ]
@@ -552,23 +610,6 @@ export default {
             map.addControl(new maplibregl.NavigationControl());
           }
 
-          // [추가] 지도 스타일 전환 함수
-          function setMapStyle(style) {
-              if(!map) return;
-              
-              if(style === 'standard') {
-                  map.setLayoutProperty('osm-layer', 'visibility', 'visible');
-                  map.setLayoutProperty('satellite-layer', 'visibility', 'none');
-                  document.getElementById('btnStandard').classList.add('active');
-                  document.getElementById('btnSatellite').classList.remove('active');
-              } else {
-                  map.setLayoutProperty('osm-layer', 'visibility', 'none');
-                  map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
-                  document.getElementById('btnStandard').classList.remove('active');
-                  document.getElementById('btnSatellite').classList.add('active');
-              }
-          }
-
           function drawChart(points, canvasId, isSimple = false, maxEle, minEle) {
             const ctx = document.getElementById(canvasId).getContext('2d');
             const step = Math.ceil(points.length / 400);
@@ -602,7 +643,15 @@ export default {
                 maintainAspectRatio: false,
                 plugins: { 
                     legend: { display: false }, 
-                    tooltip: { enabled: !isSimple, intersect: false, mode: 'index' } 
+                    tooltip: { 
+                        enabled: !isSimple, 
+                        intersect: false, 
+                        mode: 'index',
+                        callbacks: {
+                            title: (items) => \`거리: \${items[0].label} km\`,
+                            label: (item) => \`고도: \${item.raw} m\`
+                        }
+                    } 
                 },
                 onHover: (e, activeElements) => {
                     if (!isSimple && map && map.getSource('hover-marker')) {
@@ -610,20 +659,14 @@ export default {
                             const index = activeElements[0].index;
                             const originalIndex = index * step;
                             const pt = points[originalIndex];
-                            
                             if (pt) {
                                 map.getSource('hover-marker').setData({
                                     type: 'Feature',
-                                    geometry: {
-                                        type: 'Point',
-                                        coordinates: [pt.lon, pt.lat]
-                                    }
+                                    geometry: { type: 'Point', coordinates: [pt.lon, pt.lat] }
                                 });
                             }
                         } else {
-                            map.getSource('hover-marker').setData({
-                                type: 'FeatureCollection', features: []
-                            });
+                            map.getSource('hover-marker').setData({ type: 'FeatureCollection', features: [] });
                         }
                     }
                 },
@@ -632,16 +675,98 @@ export default {
                   y: { display: !isSimple, min: Math.floor(minEle * 0.9), grid: { color: '#f1f5f9' } }
                 },
                 animation: false,
-                interaction: {
-                  mode: 'nearest',
-                  axis: 'x',
-                  intersect: false
-                }
+                interaction: { mode: 'nearest', axis: 'x', intersect: false }
               }
             };
 
             const newChart = new Chart(ctx, config);
             if (canvasId === 'elevationChart') chart = newChart;
+          }
+
+          function drawMetricsChart(points, canvasId, hasHR, hasCad) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            const step = Math.ceil(points.length / 400);
+            const chartData = points.filter((_, i) => i % step === 0);
+            const labels = chartData.map(p => p.cumDist.toFixed(1));
+            
+            const datasets = [];
+            if(hasHR) {
+                datasets.push({
+                    label: '심박수 (bpm)',
+                    data: chartData.map(p => p.hr),
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    yAxisID: 'y'
+                });
+            }
+            if(hasCad) {
+                datasets.push({
+                    label: '케이던스 (spm)',
+                    data: chartData.map(p => p.cad), 
+                    borderColor: '#8b5cf6',
+                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    yAxisID: 'y1'
+                });
+            }
+
+            if(metricsChart) metricsChart.destroy();
+
+            metricsChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: labels, datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    plugins: { 
+                        tooltip: { 
+                            mode: 'index', 
+                            intersect: false,
+                            // [수정] 툴팁 타이틀(거리) 추가
+                            callbacks: {
+                                title: (items) => \`거리: \${items[0].label} km\`
+                            }
+                        } 
+                    },
+                    onHover: (e, activeElements) => {
+                        if (map && map.getSource('hover-marker')) {
+                            if (activeElements && activeElements.length > 0) {
+                                const index = activeElements[0].index;
+                                const originalIndex = index * step;
+                                const pt = points[originalIndex];
+                                if (pt) {
+                                    map.getSource('hover-marker').setData({
+                                        type: 'Feature',
+                                        geometry: { type: 'Point', coordinates: [pt.lon, pt.lat] }
+                                    });
+                                }
+                            } else {
+                                map.getSource('hover-marker').setData({ type: 'FeatureCollection', features: [] });
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: true, grid: {display:false} },
+                        y: { 
+                            display: hasHR, 
+                            position: 'left', 
+                            title: {display:true, text:'BPM'},
+                            grid: { color: '#f1f5f9' }
+                        },
+                        y1: { 
+                            display: hasCad, 
+                            position: 'right', 
+                            title: {display:true, text:'SPM'},
+                            grid: { display: false } 
+                        }
+                    },
+                    animation: false
+                }
+            });
           }
 
           function downloadImage() {
